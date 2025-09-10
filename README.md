@@ -4,6 +4,15 @@
 > This post compares **Difference‑in‑Differences (DID)** with **Triple Differences (DDD)** using a synthetic version of California’s 2020 zero‑bail policy. I show why **DDD is more informative when the policy starts statewide**: DID’s county contrast gets diluted, while DDD uses an **internal control (eligible vs. non‑eligible offenses)** to reveal the effect. I also include **placebo** and **pre‑trend** checks.
 
 ------------------------------------------------------------------------
+> ⚠️ This repository is **instructional**. Effect sizes reflect synthetic data and will differ from estimates using California DOJ data.
+
+## 📚 Cite
+
+If you use this repository, code, or figures in your own work, please cite as follows:
+
+> Nouri, S. (2025). *A Practical Guide to DID vs DDD Using Zero-Bail. Retrieved from https://github.com/SeyvanGit/Comparing-DiD-vs-DDD. DOI: 10.5281/zenodo.16879887
+---
+
 **Summary of results:** 
 
 **Immediate impact visible only in DDD**. When the policy turned on statewide, DDD (using eligible vs non-eligible within counties) shows a clear jump in 30-day rearrests for eligible charges in the first weeks, then fades to a smaller positive level.
