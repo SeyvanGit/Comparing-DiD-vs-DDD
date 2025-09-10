@@ -10,7 +10,7 @@
 
 If you use this repository, code, or figures in your own work, please cite as follows:
 
-> Nouri, S. (2025). *A Practical Guide to DID vs DDD Using Zero-Bail. Retrieved from https://github.com/SeyvanGit/Comparing-DiD-vs-DDD. DOI: 10.5281/zenodo.16879887
+> Nouri, S. (2025). *A Practical Guide to DID vs DDD Using Zero-Bail. Retrieved from https://github.com/SeyvanGit/Comparing-DiD-vs-DDD.  DOI: 10.5281/zenodo.17090133
 ---
 
 **Summary of results:** 
