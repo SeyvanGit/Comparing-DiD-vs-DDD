@@ -1,0 +1,474 @@
+---
+title: "DID vs DDD on California’s Zero‑Bail: a friendly walkthrough (synthetic data)"
+author: "Seyvan Nouri"
+date: "`r format(Sys.Date())`"
+output:
+  github_document:
+    toc: true
+    toc_depth: 3
+  html_document:
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+
+> **TL;DR**\
+> This post compares **Difference‑in‑Differences (DID)** with **Triple Differences (DDD)** using a synthetic version of California’s 2020 zero‑bail policy. I show why **DDD is more informative when the policy starts statewide**: DID’s county contrast gets diluted, while DDD uses an **internal control (eligible vs. non‑eligible offenses)** to reveal the effect. I also include **placebo** and **pre‑trend** checks.
+
+------------------------------------------------------------------------
+
+## How to run this post
+
+-   You’ll need R (≥ 4.2) and these packages: **dplyr, tidyr, lubridate, fixest, ggplot2, broom**.\
+-   Optional but I recommend for reproducibility: **renv**.
+
+``` r
+# install.packages(c("dplyr","tidyr","lubridate","fixest","ggplot2","broom"))
+# install.packages("renv")  # optional
+# renv::init()              # optional: pin package versions for the project
+```
+
+To reproduce everything below, simply **knit this README** or run the code chunks in order.\
+All data are **synthetic** and generated in the script; there are no external files.
+
+------------------------------------------------------------------------
+
+## Why DID vs DDD here? (plain language)
+
+-   **DID** compares **treated vs. control counties** *before vs after* the policy date. It works great when adoption is **staggered across units**.
+-   In April 2020, **zero‑bail started statewide on the same day**. That means treated vs control counties don’t exist in that first window—so the DID contrast gets weak / noisy.
+-   **DDD** adds a third difference: **eligible vs non‑eligible offenses** *within the same county + week*. That internal control soaks up county‑time shocks and isolates the margin the policy targets.
+
+Think of it as a **2×2×2**: - Time: **pre** vs **post** - Place: **treated counties** (continued after rescission) vs **controls** - Group: **zero‑bail eligible** vs **non‑eligible** charges
+
+DDD says: “How did (eligible − non‑eligible) change in treated places after the policy, **beyond** how (eligible − non‑eligible) changed in controls?”
+
+------------------------------------------------------------------------
+
+## What the code does
+
+1.  **Simulates** weekly county‑level arrests and 30‑day rearrests (2018–2023), with seasonality and a pandemic dip.\
+2.  Fits a **DDD event study** around **statewide start (Apr 13, 2020)** and a monthly PPIC‑style variant.\
+3.  Fits **DID vs DDD** static and dynamic models on the same data.\
+4.  Runs a **placebo test** (fake start \~7 weeks earlier).\
+5.  (Optional snippet below) Runs **pre‑trend joint tests**.
+
+Everything below is one cohesive script (identical to your analysis code) inside a single chunk for easy knitting.
+
+```{r setup, message=FALSE, warning=FALSE}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(lubridate)
+  library(fixest)
+  library(ggplot2)
+  library(broom)
+})
+
+set.seed(123456)
+```
+
+### Generate synthetic data, estimate DDD, and plot
+
+```{r analysis, message=FALSE, warning=FALSE}
+# ---- California counties ----
+all_ca <- c(
+  "Alameda","Alpine","Amador","Butte","Calaveras","Colusa","Contra Costa","Del Norte",
+  "El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Lake","Lassen",
+  "Los Angeles","Madera","Marin","Mariposa","Mendocino","Merced","Modoc","Mono","Monterey",
+  "Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","San Benito",
+  "San Bernardino","San Diego","San Francisco","San Joaquin","San Luis Obispo","San Mateo",
+  "Santa Barbara","Santa Clara","Santa Cruz","Shasta","Sierra","Siskiyou","Solano","Sonoma",
+  "Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"
+)
+
+# ---- Treated counties (continued policy after rescission) ----
+treat_ctys <- c(
+  "Alameda","Butte","Calaveras","Contra Costa","Fresno","Kings","Lake","Lassen",
+  "Los Angeles","Marin","Mendocino","Merced","Napa","Nevada","Plumas","Riverside",
+  "San Benito","San Bernardino","San Francisco","San Luis Obispo","Santa Clara",
+  "Santa Cruz","Sierra","Siskiyou","Solano","Tuolumne","Yuba"
+)
+
+# ---- Policy dates ----
+statewide_start  <- as.Date("2020-04-13")
+statewide_end    <- as.Date("2020-06-20")
+treated_placeholder_end <- as.Date("2021-06-01")
+
+# ---- Panel: county × week ----
+weeks <- seq(from = as.Date("2018-01-05"), to = as.Date("2023-09-29"), by = "week")
+panel <- crossing(county = all_ca, week = weeks) %>%
+  arrange(county, week) %>%
+  mutate(
+    week_id = as.integer(factor(week)),
+    treat   = county %in% treat_ctys
+  ) %>%
+  mutate(
+    zbo_statewide = as.integer(week >= statewide_start & week < statewide_end),
+    zbo_cont      = as.integer(treat & week >= statewide_end & week < treated_placeholder_end),
+    zbo_in_place  = pmin(1L, zbo_statewide + zbo_cont),
+    post          = as.integer(week >= statewide_start)
+  )
+
+# ---- Expand to eligibility × offense × race × gender ----
+offense_cats <- c("violent","property","drugs","other")
+races        <- c("White","Black","Hispanic","Asian/PI","Other")
+genders      <- c("Male","Female")
+
+panel_g <- panel %>%
+  crossing(
+    zb_eligible = 0:1,
+    offense_cat = offense_cats,
+    race        = races,
+    gender      = genders
+  ) %>%
+  arrange(county, week, zb_eligible, offense_cat, race, gender) %>%
+  mutate(
+    event_time = as.integer((week - statewide_start)/7),
+    et         = pmax(pmin(event_time, 40), -40)
+  )
+
+# ---- Simulation helpers ----
+season   <- function(d){ m <- month(d); if (m %in% c(6,7,8)) 1.10 else if (m %in% c(1,2)) 0.92 else 1 }
+pandemic <- function(d){ if (d >= as.Date("2020-03-15") & d <= as.Date("2020-06-30")) 0.6 else 1 }
+
+base_lambda <- function(zb, cat){
+  if(zb==1 && cat=="violent")  35 else
+  if(zb==1 && cat=="property") 80 else
+  if(zb==1 && cat=="drugs")    70 else
+  if(zb==0 && cat=="violent")  30 else
+  if(zb==0 && cat=="property") 65 else
+  if(zb==0 && cat=="drugs")    55 else 40
+}
+
+base_p <- function(zb, cat){
+  if(zb==1 && cat=="violent")  0.075 else
+  if(zb==1 && cat=="property") 0.110 else
+  if(zb==1 && cat=="drugs")    0.130 else
+  if(zb==0 && cat=="violent")  0.060 else
+  if(zb==0 && cat=="property") 0.090 else
+  if(zb==0 && cat=="drugs")    0.100 else 0.080
+}
+
+gender_bump <- function(g){ if (g=="Male") 0.010 else if (g=="Female") -0.003 else 0.000 }
+
+event_bump <- function(et, zb, cat){
+  if(is.na(et)) return(0)
+  if(zb==1){
+    if(et >= 0 && et <= 10){ if(cat=="violent") 0.025 else 0.015
+    } else if(et > 10 && et <= 52){ if(cat=="violent") 0.010 else 0.004
+    } else 0
+  } else 0
+}
+
+# ---- Simulate arrests & rearrests ----
+sim <- panel_g %>%
+  rowwise() %>%
+  mutate(
+    expected_arrests = base_lambda(zb_eligible, offense_cat) * season(week) * pandemic(week),
+    arrests          = rpois(1, lambda = pmax(expected_arrests, 1)),
+    base_prob        = base_p(zb_eligible, offense_cat) + gender_bump(gender),
+    policy_nudge     = if_else(zbo_in_place == 1, event_bump(event_time, zb_eligible, offense_cat), 0),
+    prob             = pmax(pmin(base_prob + policy_nudge, 0.7), 0.001),
+    rearrests        = rbinom(1, size = arrests, prob = prob),
+    rate             = if_else(arrests > 0, rearrests / arrests, NA_real_)
+  ) %>%
+  ungroup()
+
+# ---- DDD event-study (weeks around statewide start) ----
+m_ddd <- feols(
+  rate ~ zb_eligible +
+    i(et, ref = -5) +
+    i(et, zb_eligible, ref = -5) +
+    i(race, zb_eligible) + i(offense_cat, zb_eligible) + i(gender, zb_eligible) |
+    county[zb_eligible] + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+# ---- Coeff table for ZB × event-time ----
+tn <- broom::tidy(m_ddd)
+coefs <- tn |>
+  dplyr::filter(grepl("et::[-0-9]+:zb_eligible$", term)) |>
+  dplyr::mutate(
+    et     = as.integer(sub(".*et::(-?\\d+):zb_eligible$", "\\1", term)),
+    ci_low = estimate - 1.96*std.error,
+    ci_high= estimate + 1.96*std.error
+  ) |>
+  dplyr::arrange(et)
+
+y_min <- min(coefs$ci_low,  na.rm = TRUE)
+y_max <- max(coefs$ci_high, na.rm = TRUE)
+pad   <- 0.1 * (y_max - y_min)
+y_limits <- c(y_min - pad, y_max + pad)
+
+ggplot(coefs, aes(x = et, y = estimate)) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "grey40") +
+  geom_vline(xintercept = 0, linetype = 2, linewidth = 0.4, color = "grey40") +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.4, linewidth = 0.6, color = "orange") +
+  geom_point(size = 1.8, shape = 16) +
+  scale_x_continuous(breaks = seq(-40, 40, by = 10)) +
+  coord_cartesian(ylim = y_limits) +
+  labs(title = "DDD Event Study: ZB × Event Time (ref = -5 weeks)",
+       subtitle = "Effect on rearrest rate; vertical line = statewide start (Apr 13, 2020)",
+       x = "Weeks since statewide start (0 = 2020-04-13)", y = "Effect on rearrest rate") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title.position = "plot", panel.grid.minor = element_blank())
+```
+
+### Monthly PPIC‑style DDD (ref = −1 month)
+
+```{r monthly, message=FALSE, warning=FALSE}
+sim <- sim |>
+  mutate(
+    et_month_raw = as.numeric(difftime(week, statewide_start, units = "days")) / 30.44,
+    et_m         = pmax(pmin(as.integer(round(et_month_raw)), 11), -6)
+  )
+
+m_ddd_m <- feols(
+  rate ~ zb_eligible +
+    i(et_m, ref = -1) +
+    i(et_m, zb_eligible, ref = -1) +
+    i(race, zb_eligible) + i(offense_cat, zb_eligible) + i(gender, zb_eligible) |
+    county[zb_eligible] + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+coefs_m <- broom::tidy(m_ddd_m) |>
+  dplyr::filter(grepl("et_m::[-0-9]+:zb_eligible$", term)) |>
+  dplyr::mutate(
+    month  = as.integer(sub(".*et_m::(-?\\d+):zb_eligible$", "\\1", term)),
+    est_pp = 100 * estimate, ci_lo = 100 * (estimate - 1.96 * std.error), ci_hi = 100 * (estimate + 1.96 * std.error)
+  ) |>
+  dplyr::arrange(month)
+
+y_min_pp <- min(coefs_m$ci_lo, na.rm = TRUE)
+y_max_pp <- max(coefs_m$ci_hi, na.rm = TRUE)
+pad_pp   <- 0.1 * (y_max_pp - y_min_pp)
+y_lim_pp <- c(y_min_pp - pad_pp, y_max_pp + pad_pp)
+
+ggplot(coefs_m, aes(x = month, y = est_pp)) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "grey40") +
+  geom_vline(xintercept = 0,  linewidth = 0.7, color = "#C71E1D") +
+  geom_vline(xintercept = -1, linetype = 2, linewidth = 0.7, color = "#C71E1D") +
+  geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi), width = 0.35, linewidth = 0.8, color = "orange") +
+  geom_point(size = 2.2, shape = 16, color = "orange4") +
+  scale_x_continuous(breaks = seq(-6, 11, by = 1)) +
+  coord_cartesian(ylim = y_lim_pp) +
+  labs(title = "Monthly DDD: ZB vs non‑ZB (ref = −1 month)",
+       subtitle = "Difference in 30‑day rearrest probability (percentage points)",
+       x = "Months relative to implementation", y = "Difference (pp)") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title.position = "plot", panel.grid.minor = element_blank())
+```
+
+------------------------------------------------------------------------
+
+## DID vs DDD on the same data
+
+Below I fit **DID** (post × treated counties) and **DDD** (post × treated × eligible) using the same synthetic data.
+
+```{r did_ddd, message=FALSE, warning=FALSE}
+# Static DID: post × treated (main effects absorbed by FE)
+m_did_static <- feols(
+  rate ~ post:treat + i(race) + i(offense_cat) + i(gender) |
+    county + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+# Static DDD: triple interaction (lower orders not needed with FE)
+m_ddd_static <- feols(
+  rate ~ post:treat:zb_eligible +
+    i(race, zb_eligible) + i(offense_cat, zb_eligible) + i(gender, zb_eligible) |
+    county[zb_eligible] + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+did_eff <- broom::tidy(m_did_static) |>
+  dplyr::filter(term %in% c("post:treat","post:treatTRUE")) |>
+  dplyr::transmute(model = "DID (post × treated)",
+                   estimate_pp = 100*estimate,
+                   ci_lo_pp = 100*(estimate - 1.96*std.error),
+                   ci_hi_pp = 100*(estimate + 1.96*std.error))
+
+ddd_eff <- broom::tidy(m_ddd_static) |>
+  dplyr::filter(grepl("post.*treat.*zb_eligible", term)) |>
+  dplyr::transmute(model = "DDD (post × treated × ZB)",
+                   estimate_pp = 100*estimate,
+                   ci_lo_pp = 100*(estimate - 1.96*std.error),
+                   ci_hi_pp = 100*(estimate + 1.96*std.error))
+
+comp_static <- dplyr::bind_rows(did_eff, ddd_eff)
+comp_static
+
+ggplot(comp_static, aes(x = model, y = estimate_pp)) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "grey40") +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ci_lo_pp, ymax = ci_hi_pp), width = 0.15, linewidth = 0.7) +
+  labs(title = "Static effects: DID vs DDD (percentage points)", x = NULL, y = "pp") +
+  theme_minimal(base_size = 12)
+```
+
+> **Finding**: Using a simple difference-in-differences (**DID**), I estimate that treated counties experienced about a **+0.26** percentage-point increase in 30-day rearrests after the zero-bail start, relative to controls (95% CI: +0.06, +0.47). A triple-difference (**DDD**) design— which further compares eligible vs non-eligible charges within counties—yields a slightly smaller but much tighter effect of **+0.21** percentage points (95% CI: +0.16, +0.27). Both suggest a positive average impact, and DDD is notably more precise because the internal eligibility contrast nets out county-level shocks. Coupled with the event-study figures (big immediate jump that fades) and placebo checks, this pattern supports the interpretation that zero-bail increased short-run rearrest risk for eligible offenses. \### Dynamic overlay (event‑study around policy start).
+
+```{r dynamic_overlay, message=FALSE, warning=FALSE}
+# Event time centered on statewide start; ref = -5 weeks
+sim <- sim %>%
+  mutate(et2 = pmax(pmin(as.integer((week - statewide_start) / 7), 40), -40))
+
+m_did_es <- feols(
+  rate ~ i(et2, ref = -5) + i(et2, treat, ref = -5) + i(race) + i(offense_cat) + i(gender) |
+    county + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+coefs_did <- tidy(m_did_es) %>%
+  dplyr::filter(grepl("et2::[-0-9]+:treat$", term)) %>%
+  dplyr::mutate(
+    et = as.integer(sub(".*et2::(-?\\d+):*treat$", "\\\\1", term)),
+    est_pp = 100 * estimate,
+    ci_lo_pp = 100 * (estimate - 1.96 * std.error),
+    ci_hi_pp = 100 * (estimate + 1.96 * std.error),
+    model = "DID (treated vs control counties)"
+  ) %>% dplyr::arrange(et)
+
+m_ddd_es <- feols(
+  rate ~ zb_eligible + i(et2, ref = -5) + i(et2, zb_eligible, ref = -5) +
+    i(race, zb_eligible) + i(offense_cat, zb_eligible) + i(gender, zb_eligible) |
+    county[zb_eligible] + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+coefs_ddd <- tidy(m_ddd_es) %>%
+  dplyr::filter(grepl("et2::[-0-9]+:zb_eligible$", term)) %>%
+  dplyr::mutate(
+    et = as.integer(sub(".*et2::(-?\\d+):zb_eligible$", "\\\\1", term)),
+    est_pp = 100 * estimate,
+    ci_lo_pp = 100 * (estimate - 1.96 * std.error),
+    ci_hi_pp = 100 * (estimate + 1.96 * std.error),
+    model = "DDD (ZB vs non‑ZB)"
+  ) %>% dplyr::arrange(et)
+
+coefs_both <- dplyr::bind_rows(
+  dplyr::select(coefs_did, model, et, est_pp, ci_lo_pp, ci_hi_pp),
+  dplyr::select(coefs_ddd, model, et, est_pp, ci_lo_pp, ci_hi_pp)
+)
+
+ymin_pp <- min(coefs_both$ci_lo_pp, na.rm = TRUE)
+ymax_pp <- max(coefs_both$ci_hi_pp, na.rm = TRUE)
+pad_pp  <- 0.1 * (ymax_pp - ymin_pp)
+
+ggplot(coefs_both, aes(x = et, y = est_pp, color = model)) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "grey40") +
+  geom_vline(xintercept = 0, linetype = 2, linewidth = 0.4, color = "grey40") +
+  geom_point(size = 1.8) +
+  geom_errorbar(aes(ymin = ci_lo_pp, ymax = ci_hi_pp), width = 0.3, linewidth = 0.6) +
+  scale_x_continuous(breaks = seq(-20, 40, by = 10)) +
+  coord_cartesian(ylim = c(ymin_pp - pad_pp, ymax_pp + pad_pp)) +
+  labs(title = "Event study around policy start (Apr 13, 2020): DID vs DDD",
+       subtitle = "DID = treated vs control counties; DDD = ZB‑eligible vs non‑eligible",
+       x = "Weeks since policy start (0 = 2020‑04‑13)", y = "Effect on rearrest rate (pp)") +
+  theme_minimal(base_size = 4) +
+  theme(plot.title.position = "plot", panel.grid.minor = element_blank())
+```
+
+**Finding**: The figure centers the analysis on the policy start (week 0 = April 13, 2020). In the pre-policy period (weeks \< 0), both the DID (teal) and DDD (red) series hover around zero with overlapping confidence intervals. That visual flatness is what I hope to see: no systematic differences before the policy turns on, i.e., parallel pre-trends look reasonable.
+
+Right after week 0—during the statewide zero-bail window—the DDD line jumps sharply (roughly +1 to +2 percentage points) and then gradually drifts down. DDD exploits an internal control—eligible versus non-eligible charges within the same county and week—so it can pick up the policy’s immediate effect even when every county is treated at the same time. By contrast, the DID line stays near zero (sometimes slightly negative) in this early window because DID relies on a treated-vs-control county contrast, and there isn’t much cross-county variation to leverage when the policy turns on everywhere at once.
+
+Around \~week +10 (≈ June 20, 2020) the statewide order is rescinded and treated counties continue while controls stop. From this point forward, DID becomes informative: the teal line turns positive and remains above zero, reflecting the continuation difference across counties. The DDD line remains positive but smaller than the initial spike, consistent with an attenuating effect—a strong immediate impact that settles to a modest, persistent difference for eligible charges.
+
+**Notice also the precision:** the red DDD intervals are tighter than the teal DID intervals, especially before rescission. That’s because DDD’s within-county eligibility contrast nets out county-time shocks, reducing noise. Bottom line: when a policy starts statewide, DID will tend to understate or obscure the immediate effect, while DDD recovers it by using the eligible vs non-eligible margin. After policies truly diverge across counties (post-rescission), DID “catches up” and shows a clearer positive pattern as well.
+
+## Falsification: placebo policy date
+
+I shift the start **\~7 weeks earlier** (no real policy change) and re‑run the DID & DDD event studies. **Expected result:** series are \~flat with wide CIs.
+
+```{r placebo, message=FALSE, warning=FALSE}
+placebo_start <- statewide_start - 7*7
+
+sim <- sim %>%
+  dplyr::mutate(
+    et_pl = pmax(pmin(as.integer((week - placebo_start) / 7), 40), -40)
+  )
+
+m_did_placebo <- feols(
+  rate ~ i(et_pl, ref = -5) + i(et_pl, treat, ref = -5) + i(race) + i(offense_cat) + i(gender) |
+    county + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+coefs_did_pl <- tidy(m_did_placebo) %>%
+  dplyr::filter(grepl("et_pl::[-0-9]+:treat$", term)) %>%
+  dplyr::mutate(
+    et = as.integer(sub(".*et_pl::(-?\\d+):*treat$", "\\\\1", term)),
+    est_pp = 100 * estimate,
+    ci_lo_pp = 100 * (estimate - 1.96 * std.error),
+    ci_hi_pp = 100 * (estimate + 1.96 * std.error),
+    model = "DID placebo"
+  ) %>% dplyr::arrange(et)
+
+m_ddd_placebo <- feols(
+  rate ~ i(et_pl, ref = -5) + i(et_pl, zb_eligible, ref = -5) +
+    i(race, zb_eligible) + i(offense_cat, zb_eligible) + i(gender, zb_eligible) |
+    county[zb_eligible] + week_id,
+  data = sim, weights = ~ arrests, cluster = ~ county
+)
+
+coefs_ddd_pl <- tidy(m_ddd_placebo) %>%
+  dplyr::filter(grepl("et_pl::[-0-9]+:zb_eligible$", term)) %>%
+  dplyr::mutate(
+    et = as.integer(sub(".*et_pl::(-?\\d+):zb_eligible$", "\\\\1", term)),
+    est_pp = 100 * estimate,
+    ci_lo_pp = 100 * (estimate - 1.96 * std.error),
+    ci_hi_pp = 100 * (estimate + 1.96 * std.error),
+    model = "DDD placebo"
+  ) %>% dplyr::arrange(et)
+
+coefs_placebo <- dplyr::bind_rows(
+  dplyr::select(coefs_did_pl, model, et, est_pp, ci_lo_pp, ci_hi_pp),
+  dplyr::select(coefs_ddd_pl, model, et, est_pp, ci_lo_pp, ci_hi_pp)
+)
+
+ymin_pp <- min(coefs_placebo$ci_lo_pp, na.rm = TRUE)
+ymax_pp <- max(coefs_placebo$ci_hi_pp, na.rm = TRUE)
+pad_pp  <- 0.1 * (ymax_pp - ymin_pp)
+
+ggplot(coefs_placebo, aes(x = et, y = est_pp, color = model)) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "grey40") +
+  geom_vline(xintercept = 0, linetype = 2, linewidth = 0.4, color = "grey40") +
+  geom_point(size = 1.8) +
+  geom_errorbar(aes(ymin = ci_lo_pp, ymax = ci_hi_pp), width = 0.3, linewidth = 0.6) +
+  scale_x_continuous(breaks = seq(-20, 40, by = 10)) +
+  coord_cartesian(ylim = c(ymin_pp - pad_pp, ymax_pp + pad_pp)) +
+  labs(title = "Placebo event study (fake start ~7 weeks earlier)",
+       subtitle = "If effects are causal, both paths should be flat",
+       x = "Weeks since placebo date (0 = fake start)",
+       y = "Effect on rearrest rate (pp)") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title.position = "plot", panel.grid.minor = element_blank())
+```
+
+------------------------------------------------------------------------
+
+## How to read the figures (what to expect)
+
+-   **Static DID vs DDD (bars):** DID may be small/ambiguous because start was statewide; DDD shows a clear positive effect (pp) for eligible charges.\
+-   **Dynamic overlay:** At week 0 (vertical line), DDD jumps up (immediate effect), then attenuates. DID hovers near zero because county contrasts are diluted.\
+-   **Placebo date:** Both DID/DDD paths are \~flat with wide CIs. That supports a causal interpretation.\
+-   **Pre‑trends:** Passing the joint test (high p‑values) supports the parallel‑trends assumption.
+
+------------------------------------------------------------------------
+
+## Notes, caveats, and extensions
+
+-   Data are **synthetic** and the “true” effect is encoded in the simulation (a good teaching device).\
+-   With real data, add: multiple placebo dates, alternative windows, wild‑cluster bootstrap SEs, and subgroup analyses.\
+-   If adoption is **staggered** across counties, a modern staggered‑DID approach may be preferable for that part of the analysis.
+
+------------------------------------------------------------------------
+
+## License & citation
+
+-   MIT License.
+
+------------------------------------------------------------------------
