@@ -296,8 +296,6 @@ ggplot(comp_static, aes(x = model, y = estimate_pp)) +
   theme_minimal(base_size = 12)
 ```
 
-## Posts
-
 > **Finding**: Using a simple difference-in-differences (**DID**), I estimate that treated counties experienced about a **+0.26** percentage-point increase in 30-day rearrests after the zero-bail start, relative to controls (95% CI: +0.06, +0.47). A triple-difference (**DDD**) design— which further compares eligible vs non-eligible charges within counties—yields a slightly smaller but much tighter effect of **+0.21** percentage points (95% CI: +0.16, +0.27). Both suggest a positive average impact, and DDD is notably more precise because the internal eligibility contrast nets out county-level shocks. Coupled with the event-study figures (big immediate jump that fades) and placebo checks, this pattern supports the interpretation that zero-bail increased short-run rearrest risk for eligible offenses. \### Dynamic overlay (event‑study around policy start).
 
 ```{r dynamic_overlay, message=FALSE, warning=FALSE}
