@@ -489,5 +489,10 @@ ggplot(coefs_placebo, aes(x = et, y = est_pp, color = model)) +
 ## License & citation
 
 -   MIT License.
+-   
+  ## References
+- Premkumar, D., Skelton, A., Lofstrom, M., & Cremin, S. (2025). *What Happened When California Suspended Bail during COVID?.* 
+- `fixest` package docs: event-study with `i()` terms and multi-way fixed effects  
+- Angrist & Pischke (2009). *Mostly Harmless Econometrics* (chapters on DID/DDD)
 
 ------------------------------------------------------------------------
