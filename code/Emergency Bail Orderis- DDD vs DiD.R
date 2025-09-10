@@ -93,12 +93,12 @@ panel_g <- panel %>%
     et         = pmax(pmin(event_time, 40), -40)  # cap to keep the plot compact
   )
 
-# We’re simulating data, so we need a simple “story” for how arrests and rearrests happen:
+# We’re simulating data, so I need a simple “story” for how arrests and rearrests happen:
 # ---- Simulation helpers (seasonality, pandemic dip, base intensities) ----
 season <- function(d) { m <- month(d); if (m %in% c(6,7,8)) 1.10 else if (m %in% c(1,2)) 0.92 else 1 }
 pandemic <- function(d){ if (d >= as.Date("2020-03-15") & d <= as.Date("2020-06-30")) 0.6 else 1 }
 
-# Base weekly arrest volume by ZB × offense type "On average, how many people do we expect to arrest each week in this group?”
+# Base weekly arrest volume by ZB × offense type "On average, how many people do I expect to arrest each week in this group?”
 base_lambda <- function(zb, cat){
   if(zb==1 && cat=="violent")  35 else  # ZB--- > Zero Bail & cat ---> Category
   if(zb==1 && cat=="property") 80 else
@@ -136,8 +136,8 @@ event_bump <- function(et, zb, cat){
 }
 
 # ---- Simulate arrests and 30-day rearrests at full granularity ----
-# We're going to make a pretend/fake world ("sim") from the table "panel_g".
-# We do it one row at a time because we roll dice (random numbers) per row.
+# I am going to make a pretend/fake world ("sim") from the table "panel_g".
+# I do it one row at a time because we roll dice (random numbers) per row.
 sim <- panel_g %>%
   rowwise() %>%
   mutate(
@@ -200,7 +200,7 @@ m_ddd <- feols(
   cluster = ~ county                   # cluster at county (treatment) level
 )
 ### A note on the weight module
-# We weight the regression by the number of arrests in each county-week-offense-race-gender cell.
+# I weight the regression by the number of arrests in each county-week-offense-race-gender cell.
 # This follows the PPIC report’s approach and improves efficiency when modeling rates.
 # Cells with more arrests produce more precise rearrest rate estimates than cells with very few arrests.
 # Without weighting, small, noisy cells could distort results by contributing equally to large, precise cells.
@@ -547,10 +547,10 @@ print(DiD_DDD_Study_monthly)
 
 # ================================================================
 # Placebo test: fake policy start BEFORE the real one (falsification)
-# Goal: show that DID & DDD effects disappear when we shift the date
+# Goal: show that DID & DDD effects disappear when I shift the date
 # ================================================================
 
-# --- 0) Inputs we already have from your script -----------------
+# --- 0) Inputs -----------------
 # sim: dataset with columns week (Date), rate (0-1), arrests, county, week_id,
 #      treat (0/1 or TRUE/FALSE), zb_eligible (0/1), race, offense_cat, gender
 # statewide_start <- as.Date("2020-04-13")   # real start (already defined)
@@ -568,7 +568,7 @@ sim <- sim %>%
   )
 
 # --- 3) DID placebo event-study (treated vs control counties) -----------------
-# Spec mirrors your real DID ES, just swapping et2 -> et_pl.
+# Spec mirrors real DID ES, just swapping et2 -> et_pl.
 m_did_placebo <- feols(
   rate ~ i(et_pl, ref = -5) + i(et_pl, treat, ref = -5) +
     i(race) + i(offense_cat) + i(gender) |
@@ -592,7 +592,7 @@ coefs_did_pl <- tidy(m_did_placebo) %>%
 
 
 # --- 4) DDD placebo event-study (ZB vs non-ZB within treated) -----------------
-# We keep the treated-only simplification you used before: within treated counties,
+# I keep the treated-only simplification you used before: within treated counties,
 # compare ZB-eligible vs non-eligible over placebo event time.
 
 m_ddd_placebo <- feols(

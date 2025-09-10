@@ -53,7 +53,7 @@ DDD says: “How did (eligible − non‑eligible) change in treated places afte
 4.  Runs a **placebo test** (fake start \~7 weeks earlier).\
 5.  (Optional snippet below) Runs **pre‑trend joint tests**.
 
-Everything below is one cohesive script (identical to your analysis code) inside a single chunk for easy knitting.
+Everything below is one cohesive script (identical to the analysis code) inside a single chunk for easy knitting.
 
 ```{r setup, message=FALSE, warning=FALSE}
 suppressPackageStartupMessages({
