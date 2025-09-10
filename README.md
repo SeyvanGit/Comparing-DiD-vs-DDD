@@ -297,7 +297,7 @@ ggplot(comp_static, aes(x = model, y = estimate_pp)) +
 ```
 
 ## Static effects: DID vs DDD
-![Static effects: DID vs DDD](figures/Static%20effects_DID%20vs%20DDD.jpg "Static effects: DID vs DDD")
+![Static effects DID vs DDD](figures/Static%20effects_DID%20vs%20DDD.jpeg "Static effects DID vs DDD")
 
 > **Finding**: Using a simple difference-in-differences (**DID**), I estimate that treated counties experienced about a **+0.26** percentage-point increase in 30-day rearrests after the zero-bail start, relative to controls (95% CI: +0.06, +0.47). A triple-difference (**DDD**) design— which further compares eligible vs non-eligible charges within counties—yields a slightly smaller but much tighter effect of **+0.21** percentage points (95% CI: +0.16, +0.27). Both suggest a positive average impact, and DDD is notably more precise because the internal eligibility contrast nets out county-level shocks. Coupled with the event-study figures (big immediate jump that fades) and placebo checks, this pattern supports the interpretation that zero-bail increased short-run rearrest risk for eligible offenses. \### Dynamic overlay (event‑study around policy start).
 
@@ -361,6 +361,9 @@ ggplot(coefs_both, aes(x = et, y = est_pp, color = model)) +
   theme_minimal(base_size = 4) +
   theme(plot.title.position = "plot", panel.grid.minor = element_blank())
 ```
+## Event study: DID (treated vs control) vs DDD (ZB vs non-ZB)
+![Event study overlay](figures/DID_treated%20vs%20control%20counties%20DDD_%20ZB%20vs%20non-ZB%20counties.jpeg "DID treated vs control; DDD ZB vs non-ZB")
+
 
 **Finding**: The figure centers the analysis on the policy start (week 0 = April 13, 2020). In the pre-policy period (weeks \< 0), both the DID (teal) and DDD (red) series hover around zero with overlapping confidence intervals. That visual flatness is what I hope to see: no systematic differences before the policy turns on, i.e., parallel pre-trends look reasonable.
 
@@ -438,7 +441,8 @@ ggplot(coefs_placebo, aes(x = et, y = est_pp, color = model)) +
   theme_minimal(base_size = 12) +
   theme(plot.title.position = "plot", panel.grid.minor = element_blank())
 ```
-
+## Placebo event study
+![Placebo event study](figures/Placebo%20event%20study.jpeg "Placebo event study")
 ------------------------------------------------------------------------
 
 ## How to read the figures (what to expect)
