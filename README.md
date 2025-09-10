@@ -6,13 +6,13 @@
 ------------------------------------------------------------------------
 **Summary of results:** 
 
-Immediate impact visible only in DDD. When the policy turned on statewide, DDD (using eligible vs non-eligible within counties) shows a clear jump in 30-day rearrests for eligible charges in the first weeks, then fades to a smaller positive level.
+**Immediate impact visible only in DDD**. When the policy turned on statewide, DDD (using eligible vs non-eligible within counties) shows a clear jump in 30-day rearrests for eligible charges in the first weeks, then fades to a smaller positive level.
 
-DID is muted until counties diverge. With everyone treated at start, the treated-vs-control county contrast is weak; DID turns positive only after rescission when some counties continue and others stop.
+**DID is muted until counties diverge**. With everyone treated at start, the treated-vs-control county contrast is weak; DID turns positive only after rescission when some counties continue and others stop.
 
-Magnitudes & precision. Static effects are small but meaningful (≈ +0.2–0.3 pp). The DDD estimate is much tighter (narrower CI) because the internal eligibility contrast nets out county-time shocks.
+**Magnitudes & precision**. Static effects are small but meaningful (≈ +0.2–0.3 pp). The DDD estimate is much tighter (narrower CI) because the internal eligibility contrast nets out county-time shocks.
 
-Credibility checks. A placebo start date yields ~0 effects, and pre-policy bins are jointly ~0—supporting a causal interpretation.
+**Credibility checks**. A placebo start date yields ~0 effects, and pre-policy bins are jointly ~0—supporting a causal interpretation.
 
 Takeaway. Zero-bail raised short-run rearrest risk for eligible offenses, and DDD is the preferred design when treatment begins statewide.
 ---
